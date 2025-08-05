@@ -229,6 +229,14 @@ extension Core {
 	}
 }
 extension Core {
+	var bypass: Bool {
+		get {
+			select?.shouldBypassEffect ?? false
+		}
+		set {
+			select?.shouldBypassEffect = newValue
+		}
+	}
 	@inlinable @inline(__always)
 	func dsp(i: UnsafePointer<UnsafeMutablePointer<Float64>>, ni: Int,
 			 o: UnsafePointer<UnsafeMutablePointer<Float64>>, no: Int,
@@ -435,6 +443,10 @@ func setup(object: UnsafeMutableRawPointer, samplerate: CDouble, vectorsize: CLo
 			   vectorsize: .init(vectorsize),
 			   i: UnsafeBufferPointer(start: i, count: .init(ic)).compactMap(Int.init(exactly:)),
 			   o: UnsafeBufferPointer(start: o, count: .init(oc)).compactMap(Int.init(exactly:))))
+}
+@_cdecl("core_bypass")
+func bypass(object: UnsafeMutableRawPointer, flag: CBool) {
+	Unmanaged<Core>.fromOpaque(object).takeUnretainedValue().bypass = .init(flag)
 }
 @_cdecl("core_dsp")
 func dsp(object: UnsafeMutableRawPointer,
