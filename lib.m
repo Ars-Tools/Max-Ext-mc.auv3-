@@ -42,7 +42,7 @@ C74_HIDDEN t_auv3 const*const new(t_symbol const*const symbol, short const argc,
 //		inlet_new(object, "list");
 		if ( 0 < object->i.length )
 			z_dsp_setup((t_pxobject*const)object, object->i.length );
-		*(short*const)&object->super.z_misc |= Z_MC_INLETS;//|Z_NO_INPLACE;
+		*(short*const)&object->super.z_misc |= Z_MC_INLETS|Z_NO_INPLACE;
 		
 		// Outlets
 		*(void const**const)&object->outlet = listout(object);
