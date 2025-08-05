@@ -10,9 +10,21 @@
 		}
 ,
 		"classnamespace" : "box",
-		"rect" : [ 241.0, 145.0, 705.0, 621.0 ],
+		"rect" : [ 241.0, 144.0, 705.0, 621.0 ],
 		"gridsize" : [ 15.0, 15.0 ],
 		"boxes" : [ 			{
+				"box" : 				{
+					"id" : "obj-2",
+					"maxclass" : "newobj",
+					"numinlets" : 2,
+					"numoutlets" : 1,
+					"outlettype" : [ "multichannelsignal" ],
+					"patching_rect" : [ 15.0, 300.0, 92.0, 22.0 ],
+					"text" : "mc.mixdown~ 2"
+				}
+
+			}
+, 			{
 				"box" : 				{
 					"id" : "obj-14",
 					"maxclass" : "spectroscope~",
@@ -65,7 +77,7 @@
 					"maxclass" : "mc.ezdac~",
 					"numinlets" : 1,
 					"numoutlets" : 0,
-					"patching_rect" : [ 15.0, 300.0, 45.0, 45.0 ]
+					"patching_rect" : [ 15.0, 330.0, 45.0, 45.0 ]
 				}
 
 			}
@@ -161,6 +173,13 @@
 , 			{
 				"patchline" : 				{
 					"destination" : [ "obj-8", 0 ],
+					"source" : [ "obj-2", 0 ]
+				}
+
+			}
+, 			{
+				"patchline" : 				{
+					"destination" : [ "obj-2", 0 ],
 					"source" : [ "obj-6", 0 ]
 				}
 
