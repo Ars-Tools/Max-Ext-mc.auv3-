@@ -6,6 +6,7 @@
 //
 import AudioUnit
 import SwiftUI
+import simd
 @MainActor
 public struct Knob<Model: RangeValueModel>: SwiftUI.View {
 	@State private var tapLocation: CGPoint = .zero
@@ -95,12 +96,11 @@ public struct Knob<Model: RangeValueModel>: SwiftUI.View {
 		}
 	}
 	private func distance(from point1: CGPoint, to point2: CGPoint) -> CGFloat {
-		return sqrt(pow(point2.x - point1.x, 2) + pow(point2.y - point1.y, 2))
+		sqrt(pow(point2.x - point1.x, 2) + pow(point2.y - point1.y, 2))
 	}
 }
 struct AquaKnobView: SwiftUI.View {
 	@ObservedObject var parameter: AUParameter
-	@State private var angle: Angle = .zero
 	@State private var isDragging = false
 	private let knobSize: CGFloat = 70
 	private let indicatorRadius: CGFloat = 4
@@ -110,7 +110,7 @@ struct AquaKnobView: SwiftUI.View {
 			.degrees(fma(.init(parameter.normalizedValue), 300.0, -150.0))
 		}
 		nonmutating set {
-			parameter.normalizedValue = min(1, max(0, .init(newValue.degrees + 150.0) / 300.0))
+			parameter.normalizedValue = .init(simd_clamp((newValue.degrees + 150) / 300, 0, 1))
 		}
 	}
 	var body: some SwiftUI.View {
