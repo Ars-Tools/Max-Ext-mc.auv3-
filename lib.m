@@ -152,7 +152,6 @@ C74_HIDDEN void midi_in(t_auv3 const*const this, t_symbol const*const msg, long 
 }
 C74_HIDDEN void midi_out(t_auv3 const*const this, uint8_t const*const msg, uint64_t const count) {
 	t_atom*const argv = (t_atom*const)sysmem_newptr(count * sizeof(t_atom const));
-	atom_setsym(argv, gensym("midi"));
 	atom_setchar_array(count, argv, count, (uint8_t*const)msg);
 	outlet_anything(this->outlet, gensym("midi"), count, argv);
 	sysmem_freeptr(argv);
