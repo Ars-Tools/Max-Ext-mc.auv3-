@@ -3,11 +3,6 @@ import AVFAudio
 import Synchronization
 import SwiftUI
 import Accelerate
-final class MyWindow: NSWindow {
-	deinit {
-		SDK.Post("window release")
-	}
-}
 final class Core: Observable, @unchecked Sendable {
 	@usableFromInline let native: UnsafeMutableRawPointer
 	@usableFromInline let window: NSWindow
@@ -15,22 +10,16 @@ final class Core: Observable, @unchecked Sendable {
 	@usableFromInline var kernel: (UnsafePointer<UnsafeMutablePointer<Float64>>, Int,
 								   UnsafePointer<UnsafeMutablePointer<Float64>>, Int,
 								   Int) -> OSStatus
-	@usableFromInline let elapse: Atomic<UInt64>
-	@usableFromInline let sampleRate: Atomic<Float64>
-	@usableFromInline let maxvecsize: Atomic<UInt64>
 	@MainActor
 	init(object: UnsafeMutableRawPointer) {
 		assert(Thread.isMainThread)
-		sampleRate = .init(44100)
-		maxvecsize = .init(1024)
 		native = object
-		window = MyWindow(
+		window = NSWindow(
 			contentRect: NSRect(x: 0, y: 0, width: 512, height: 512),
 			styleMask: [.titled, .closable, .resizable, .miniaturizable],
 			backing: .buffered,
-			defer: false)
+			defer: true)
 		select = .none
-		elapse = .init(.zero)
 		kernel = type(of: self).UninitializedKernel
 		window.isReleasedWhenClosed = false
 		window.minSize = .init(width: 960, height: 540)
@@ -43,7 +32,6 @@ final class Core: Observable, @unchecked Sendable {
 	}
 }
 extension Core {
-	static let UninitializedMessage = "Audio Unit (v3) is not loaded"
 	static func UninitializedKernel(i: UnsafePointer<UnsafeMutablePointer<Float64>>, numi: Int,
 									o: UnsafePointer<UnsafeMutablePointer<Float64>>, numo: Int,
 									count: Int) -> OSStatus {
@@ -68,7 +56,7 @@ extension Core {
 			if unit.providesUserInterface, let controller = await unit.requestViewController(), 1 < controller.preferredContentSize.area {
 				set(view: controller)
 			} else {
-				SDK.Print(native, "Parameter View will be used because no UI available for \(unit.audioUnitName ?? unit.audioUnitShortName ?? "unknown")")
+				SDK.Print(native, "Default UI will be used for \(unit.audioUnitName ?? unit.audioUnitShortName ?? "unknown")")
 				set(view: UnitView(core: self, unit: unit))
 			}
 			unit.parameterTree?.implementorValueObserver = { [native] in
@@ -76,7 +64,6 @@ extension Core {
 			}
 			unit.midiOutputEventBlock = { [native] in
 				SDK.MIDIOut(native, $3, .init($2))
-				SDK.Print(native, "MIDIOut")
 				return 0
 			}
 //			unit.midiOutputEventListBlock = { [unowned self] in
@@ -89,12 +76,12 @@ extension Core {
 						unit.componentDescription.componentManufacturer)
 		}
 	}
+	@MainActor
 	func unload() {
 		select = .none
-		Task { @MainActor in
-			set(view: View(core: self))
-		}
+		set(view: View(core: self))
 	}
+	@MainActor
 	func reload() {
 		switch select.map(\.componentDescription) {
 		case.some(let description):
@@ -111,15 +98,14 @@ extension Core {
 	}
 	@MainActor
 	func set(view: some SwiftUI.View) {
-		let root = view.frame(minWidth: window.minSize.width, minHeight: window.minSize.height)
-		set(view: NSHostingController(rootView: root))
+		set(view: NSHostingController(rootView: view.frame(minWidth: window.minSize.width,
+														   minHeight: window.minSize.height)))
 	}
 }
 extension Core {
+	@MainActor
 	func dblclick() {
-		Task { @MainActor [window] in
-			window.makeKeyAndOrderFront(.none)
-		}
+		window.makeKeyAndOrderFront(.none)
 	}
 }
 extension Core {
@@ -130,7 +116,11 @@ extension Core {
 		}
 		select.deallocateRenderResources()
 		select.maximumFramesToRender = .init(vectorsize)
-		for (bus, count) in zip(select.inputBusses, i) {
+		let busses = (
+			i: select.inputBusses,
+			o: select.outputBusses
+		)
+		for (bus, count) in zip(busses.i, i) {
 			let format = [
 				.init(commonFormat: .pcmFormatFloat64, sampleRate: samplerate, monoChannels: count, interleaved: false),
 				.init(sampleRate: samplerate, monoChannels: count),
@@ -138,7 +128,7 @@ extension Core {
 			] as Array<Optional<AVAudioFormat>>
 			bus.isEnabled = format.compactMap(\.self).first(where: bus.set(format:)) != .none
 		}
-		for (bus, count) in zip(select.outputBusses, o) {
+		for (bus, count) in zip(busses.o, o) {
 			let format = [
 				.init(commonFormat: .pcmFormatFloat64, sampleRate: samplerate, monoChannels: count, interleaved: false),
 				.init(sampleRate: samplerate, monoChannels: count),
@@ -146,14 +136,17 @@ extension Core {
 			] as Array<Optional<AVAudioFormat>>
 			bus.isEnabled = format.compactMap(\.self).first(where: bus.set(format:)) != .none
 		}
-		let iconv = Array(select.inputBusses.offsetConverters)
-		let oconv = Array(select.outputBusses.offsetConverters)
+		let iconv = Array(busses.i.convertersF64)
+		let oconv = Array(busses.o.convertersF64)
 		let count = Atomic<Int>(0)
 		let render = select.renderBlock
-		kernel = { [native] in
+		kernel = { [native, busses] in
 			let source = zip((0..<$1).lazy.map($0.advanced(by:)).map(\.pointee), repeatElement($4, count: $1)).map(UnsafeMutableBufferPointer<Float64>.init(start:count:)) as Array
 			let target = zip((0..<$3).lazy.map($2.advanced(by:)).map(\.pointee), repeatElement($4, count: $3)).map(UnsafeMutableBufferPointer<Float64>.init(start:count:)) as Array
 			let inputs = {
+				guard busses.i.indices ~= $3, busses.i[$3].isEnabled else {
+					return kAudioUnitErr_CannotDoInCurrentContext
+				}
 				let (offset, converter) = iconv[$3]
 				let buffer = AudioBufferList.allocate(maximumBuffers: .init(converter.inputFormat.channelCount))
 				defer {
@@ -190,7 +183,7 @@ extension Core {
 										mSMPTETime: .init(),
 										mFlags: [.sampleHostTimeValid, .rateScalarValid],
 										mReserved: 0)
-			for (bus, (offset, converter)) in oconv.enumerated() {
+			for (bus, (offset, converter)) in oconv.enumerated() where busses.o[bus].isEnabled {
 				let buffer = AudioBufferList.allocate(maximumBuffers: .init(converter.outputFormat.channelCount))
 				defer {
 					buffer.unsafePointer.deallocate()
@@ -250,11 +243,7 @@ extension Core {
 }
 extension Core {
 	func input(index: Int, count: Int) -> Bool {
-		guard let select else {
-			SDK.Error(native, "No Audio Unit (V3) Select")
-			return false
-		}
-		if select.inputBusses.indices ~= index, let format = AVAudioFormat(sampleRate: select.inputBusses[index].format.sampleRate, monoChannels: count) {
+		if let select, select.inputBusses.indices ~= index, let format = AVAudioFormat(sampleRate: select.inputBusses[index].format.sampleRate, monoChannels: count) {
 			do {
 				try select.inputBusses[index].setFormat(format)
 				return true
@@ -263,7 +252,6 @@ extension Core {
 				return false
 			}
 		} else {
-			SDK.Error(native, "Cannot match for \(select.inputBusses.map(\.format)) of \(index), \(count)")
 			return false
 		}
 	}
@@ -353,7 +341,7 @@ extension Core {
 			select.currentPreset = select.factoryPresets.flatMap {
 				$0.indices.contains(index) ? .some($0[index]) : .none
 			}
-			select.fullState = try select.currentPreset.map(select.presetState(for:))
+//			select.fullState = try select.currentPreset.map(select.presetState(for:))
 		} catch {
 			SDK.Error(native, String(describing: error))
 		}
@@ -429,10 +417,12 @@ extension Core {
 func new(native: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {
 	Unmanaged<Core>.passRetained(.init(object: native)).toOpaque()
 }
+@MainActor
 @_cdecl("core_del")
 func del(object: UnsafeMutableRawPointer) {
 	Unmanaged<Core>.fromOpaque(object).release()
 }
+@MainActor
 @_cdecl("core_dblclick")
 func dblclick(object: UnsafeMutableRawPointer) {
 	Unmanaged<Core>.fromOpaque(object).takeUnretainedValue().dblclick()
@@ -494,14 +484,17 @@ func preset(object: UnsafeMutableRawPointer, key: CChar, value: CLong) {
 		break
 	}
 }
+@MainActor
 @_cdecl("core_load")
 func load(object: UnsafeMutableRawPointer, type: UInt32, subtype: UInt32, manufacturer: UInt32) {
 	Unmanaged<Core>.fromOpaque(object).takeUnretainedValue().load(type: type, subtype: subtype, manufacturer: manufacturer)
 }
+@MainActor
 @_cdecl("core_unload")
 func unload(object: UnsafeMutableRawPointer) {
 	Unmanaged<Core>.fromOpaque(object).takeUnretainedValue().unload()
 }
+@MainActor
 @_cdecl("core_reload")
 func reload(object: UnsafeMutableRawPointer) {
 	Unmanaged<Core>.fromOpaque(object).takeUnretainedValue().reload()
