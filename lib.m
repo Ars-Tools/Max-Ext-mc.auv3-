@@ -23,6 +23,7 @@ extern void core_unload(void const*const);
 extern void core_reload(void const*const);
 extern void core_dblclick(void const*const);
 extern bool core_setup(void const*const, double const, long const, long const*const, long const, long const*const, long const);
+extern void core_bypass(void const*const, bool const);
 extern void core_dsp(void const*const this,
 					 double const*const*const ins, long const numins,
 					 double      *const*const out, long const numout,
@@ -100,6 +101,9 @@ C74_HIDDEN void clr(t_auv3 const*const this, t_object const*const dsp64,
 					void*const parameter) {
 	for ( register long k = 0, K = numout ; k < K ; ++ k )
 		vDSP_vclrD(out[k], 1, length);
+}
+C74_HIDDEN void bypass(t_auv3 const*const this, long const flag) {
+	core_bypass(this->core, flag);
 }
 C74_HIDDEN void routine64(t_auv3 const*const this, t_object const*const dsp64,
 						  double const*const*const ins, long const numins,
@@ -184,6 +188,7 @@ C74_EXPORT void ext_main(void*const _) {
 		t_class * const object = (t_class*const)class_new("mc.auv3~", (method const)new, (method const)del, sizeof(t_auv3 const), 0L, A_GIMME, 0);
 		
 		// DSP relations
+		class_addmethod(object, (method const)bypass, "bypass", A_DEFLONG, 0);
 		class_addmethod(object, (method const)dsp64, "dsp64", A_CANT, 0);
 		class_addmethod(object, (method const)input, "inputchanged", A_CANT, 0);
 		class_addmethod(object, (method const)output, "multichanneloutputs", A_CANT, 0);
