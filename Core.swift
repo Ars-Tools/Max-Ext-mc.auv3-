@@ -330,6 +330,8 @@ extension Core {
 			return
 		}
 		parameter.setValue(value, originator: .none)
+		parameter.objectWillChange.send()
+//		select.objectWillChange.send()
 	}
 	func parameter_out(address: AUParameterAddress, value: AUValue) {
 		SDK.ParameterOut(native, address, .init(value))
