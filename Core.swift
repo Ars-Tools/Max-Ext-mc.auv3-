@@ -10,6 +10,8 @@ final class Core: Observable, @unchecked Sendable {
 	@usableFromInline var kernel: (UnsafePointer<UnsafeMutablePointer<Float64>>, Int,
 								   UnsafePointer<UnsafeMutablePointer<Float64>>, Int,
 								   Int) -> OSStatus
+	@usableFromInline let tempo: Atomic<Float64>
+	@usableFromInline let beat: Atomic<Int>
 	@MainActor
 	init(object: UnsafeMutableRawPointer) {
 		assert(Thread.isMainThread)
@@ -21,6 +23,8 @@ final class Core: Observable, @unchecked Sendable {
 			defer: true)
 		select = .none
 		kernel = type(of: self).UninitializedKernel
+		tempo = .init(.nan)
+		beat = .init(4)
 		window.isReleasedWhenClosed = false
 		window.minSize = .init(width: 960, height: 540)
 		set(view: View(core: self))
@@ -136,10 +140,43 @@ extension Core {
 			] as Array<Optional<AVAudioFormat>>
 			bus.isEnabled = format.compactMap(\.self).first(where: bus.set(format:)) != .none
 		}
+		let render = select.renderBlock
+		let count = Atomic<Int>(0)
 		let iconv = Array(busses.i.convertersF64)
 		let oconv = Array(busses.o.convertersF64)
-		let count = Atomic<Int>(0)
-		let render = select.renderBlock
+		select.musicalContextBlock = { [unowned self]
+			currentTempo,
+			timeSignatureNumerator,
+			timeSignatureDenominator,
+			currentBeatPosition,
+			sampleOffsetToNextBeat,
+			currentMeasureDownbeatPosition in
+			var result = false
+			if let currentTempo {
+				currentTempo.pointee = .init(tempo.load(ordering: .acquiring))
+				result = true
+			}
+			if let timeSignatureNumerator {
+				timeSignatureNumerator.pointee = .init(count.load(ordering: .acquiring))
+				result = true
+			}
+			if let timeSignatureDenominator {
+				timeSignatureDenominator.pointee = .init(samplerate)
+				result = true
+			}
+			return result
+		}
+//		select.transportStateBlock = {
+//			transportStateFlags,
+//			currentSamplePosition,
+//			cycleStartBeatPosition,
+//			cycleEndBeatPosition in
+//			transportStateFlags?.pointee = .
+//			currentSamplePosition?.pointee = count.load(ordering: .acquiring)
+//			cycleStartBeatPosition?.pointee = 0
+//			cycleEndBeatPosition?.pointee = 0
+//			return true
+//		}
 		kernel = { [native, busses] in
 			let source = zip((0..<$1).lazy.map($0.advanced(by:)).map(\.pointee), repeatElement($4, count: $1)).map(UnsafeMutableBufferPointer<Float64>.init(start:count:)) as Array
 			let target = zip((0..<$3).lazy.map($2.advanced(by:)).map(\.pointee), repeatElement($4, count: $3)).map(UnsafeMutableBufferPointer<Float64>.init(start:count:)) as Array
@@ -312,12 +349,6 @@ extension Core {
 		}
 		unit.scheduleMIDIEventBlock?(AUEventSampleTimeImmediate, 0, .init(msg.count), msg.baseAddress.unsafelyUnwrapped)
 	}
-	func midi_out(at time: AUEventSampleTime, cable: UInt8, start: UnsafePointer<UInt8>, count: Int) -> OSStatus {
-		return 0
-	}
-	func midi_out(at time: AUEventSampleTime, cable: UInt8, event: UnsafePointer<MIDIEventList>) -> OSStatus {
-		return 0
-	}
 }
 extension Core {
 	func parameter_in(address: AUParameterAddress, value: AUValue) {
@@ -332,9 +363,6 @@ extension Core {
 		parameter.setValue(value, originator: .none)
 		parameter.objectWillChange.send()
 //		select.objectWillChange.send()
-	}
-	func parameter_out(address: AUParameterAddress, value: AUValue) {
-		SDK.ParameterOut(native, address, .init(value))
 	}
 }
 extension Core {
