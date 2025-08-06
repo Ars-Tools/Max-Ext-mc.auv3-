@@ -35,8 +35,8 @@ extern void core_midi(void const*const, uint8_t const*const, long const);
 C74_HIDDEN t_auv3 const*const new(t_symbol const*const symbol, short const argc, t_atom*const argv) {
 	register t_auv3 * const object = (t_auv3*const)object_alloc((t_class*const)class);
 	if (object) {
-		attr_args_process(object, argc, argv);
 		*(void const**const)&object->core = core_new(&object->super);
+		attr_args_process(object, argc, argv);
 		
 		// Inlets
 //		inlet_new(object, "list");
@@ -166,7 +166,8 @@ C74_HIDDEN void preset_in(t_auv3 const*const this, t_symbol const*const msg, lon
 	// 0b111 preset delete
 	switch (argc) {
 	case 2:
-		if (atom_gettype(argv + 0) != A_SYM && atom_gettype(argv + 1) != A_LONG);
+		if (atom_gettype(argv + 0) != A_SYM && atom_gettype(argv + 1) != A_LONG)
+			object_post(this, "Invalid arguments, [Preset] [Command (symbol)] [Index (number)]");
 		else if (atom_getsym(argv) == gensym("factory"))
 			core_preset(this->core, 0b000, atom_getlong(argv + 1));
 		else if (atom_getsym(argv) == gensym("load"))
@@ -209,7 +210,7 @@ C74_EXPORT void ext_main(void*const _) {
 		// Preset
 		class_addmethod(object, (method const)preset_in, "preset", A_GIMME, 0);
 		
-		// Show UI
+		// UI
 		class_addmethod(object, (method const)dblclick, "dblclick", A_CANT, 0);
 		
 		// Assist
@@ -218,12 +219,11 @@ C74_EXPORT void ext_main(void*const _) {
 		// Attributes
 		class_addattr(object, attr_offset_array_new("in", gensym("long"), 32, 0, (method const)0L,(method const)0L, offsetof(t_auv3 const, i.length), offsetof(t_auv3 const, i.layout)));
 		class_addattr(object, attr_offset_array_new("out", gensym("long"), 32, 0, (method const)0L, (method const)0L, offsetof(t_auv3 const, o.length), offsetof(t_auv3 const, o.layout)));
-
+		
 		// DSP Initialisation
 		class_dspinit(object);
 		
 		// Register
-		class_register(CLASS_BOX, object);
-		class = object;
+		class_register(CLASS_BOX, class = object);
 	}
 }
